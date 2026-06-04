@@ -1,0 +1,44 @@
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.env
+.venv
+venv/
+env/
+*.so
+
+# ML artifacts (generated, not committed)
+ml/model.onnx
+ml/feature_map.json
+ml/eval_results.json
+
+# Node
+node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Test / coverage
+.coverage
+htmlcov/
+.pytest_cache/
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Docker
+.docker/
+
+# OS
+.DS_Store
+Thumbs.db
