@@ -1,0 +1,154 @@
+version: "3.9"
+
+# ── Networks ───────────────────────────────────────────────────────
+networks:
+  payguard:
+    driver: bridge
+
+# ── Volumes ────────────────────────────────────────────────────────
+volumes:
+  pg_data:
+  ml_models:   # shared between ml train, inference sidecar, consumer
+
+# ── Services ───────────────────────────────────────────────────────
+services:
+
+  # ── Kafka (KRaft mode — no Zookeeper) ──────────────────────────
+  kafka:
+    image: bitnami/kafka:3.6
+    networks: [payguard]
+    environment:
+      KAFKA_ENABLE_KRAFT: "yes"
+      KAFKA_CFG_NODE_ID: "1"
+      KAFKA_CFG_PROCESS_ROLES: broker,controller
+      KAFKA_CFG_LISTENERS: "PLAINTEXT://:9092,CONTROLLER://:9093"
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: "PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT"
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CFG_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:9092"
+      KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: "true"
+      ALLOW_PLAINTEXT_LISTENER: "yes"
+    healthcheck:
+      test: ["CMD", "kafka-topics.sh", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    ports:
+      - "9092:9092"
+
+  # ── PostgreSQL ──────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    networks: [payguard]
+    environment:
+      POSTGRES_DB: payguard
+      POSTGRES_USER: payguard
+      POSTGRES_PASSWORD: payguard_secret
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "payguard"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "5432:5432"
+
+  # ── Inference sidecar ───────────────────────────────────────────
+  inference:
+    build:
+      context: .
+      dockerfile: inference/Dockerfile
+    networks: [payguard]
+    environment:
+      MODEL_PATH: /models/model.onnx
+      FEATURE_MAP_PATH: /models/feature_map.json
+      THRESHOLD_FLAG: "0.85"
+      THRESHOLD_REVIEW: "0.60"
+    volumes:
+      - ml_models:/models:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    ports:
+      - "8000:8000"
+
+  # ── Kafka consumer ──────────────────────────────────────────────
+  consumer:
+    build:
+      context: .
+      dockerfile: consumer/Dockerfile
+    networks: [payguard]
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_TOPIC: transactions
+      KAFKA_GROUP_ID: payguard-consumer
+      INFERENCE_URL: http://inference:8000
+      DATABASE_URL: postgresql://payguard:payguard_secret@postgres:5432/payguard
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      inference:
+        condition: service_healthy
+    restart: on-failure
+
+  # ── API ─────────────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    networks: [payguard]
+    environment:
+      DATABASE_URL: postgresql://payguard:payguard_secret@postgres:5432/payguard
+      INFERENCE_URL: http://inference:8000
+      API_KEY: "${API_KEY:-dev-secret-key}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      inference:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "8001:8001"
+
+  # ── Transaction generator ───────────────────────────────────────
+  producer:
+    build:
+      context: .
+      dockerfile: producer/Dockerfile
+    networks: [payguard]
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_TOPIC: transactions
+      EVENTS_PER_SEC: "${EVENTS_PER_SEC:-10}"
+      GENERATOR_SEED: "${GENERATOR_SEED:-42}"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    restart: on-failure
+
+  # ── Frontend dashboard ──────────────────────────────────────────
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    networks: [payguard]
+    environment:
+      VITE_API_URL: http://localhost:8001
+      VITE_WS_URL: ws://localhost:8001/ws
+      VITE_API_KEY: "${API_KEY:-dev-secret-key}"
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
