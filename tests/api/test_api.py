@@ -7,13 +7,11 @@ and httpx mock transport.
 """
 from __future__ import annotations
 
-import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-import pytest_asyncio
 from fastapi.testclient import TestClient
-from httpx import AsyncClient, Response
+from httpx import Response
 
 # -------------------------------------------------------------------
 # We mock asyncpg and the inference sidecar before importing the app
@@ -50,10 +48,6 @@ def mock_db_pool(monkeypatch):
                       for r in _mock_rows_transactions]
     )
 
-    # For single-row queries return the stats row
-    mock_stats_row = {
-        "tp": 10, "fp": 2, "fn": 5, "tn": 83, "total": 100
-    }
     mock_conn.fetchval = AsyncMock(return_value=1)
     mock_conn.execute = AsyncMock(return_value=None)
 
@@ -96,8 +90,8 @@ def api_client():
         mock_httpx.return_value.__aenter__ = AsyncMock(return_value=http_client)
         mock_httpx.return_value = http_client
 
-        from api.main import app, _db_pool, _http_client
         import api.main as api_module
+        from api.main import app
 
         # Inject mocks directly
         api_module._db_pool = pool

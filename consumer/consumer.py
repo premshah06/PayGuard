@@ -21,7 +21,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import asyncpg
 import httpx
@@ -117,7 +117,7 @@ async def consume() -> None:
                     score_resp = resp.json()
                     await write_audit(pool, txn, score_resp)
                     if score_resp["decision"] == "flag":
-                        ts = datetime.now(timezone.utc).isoformat()
+                        ts = datetime.now(UTC).isoformat()
                         print(
                             f"[consumer] FLAGGED  txn={txn['transaction_id'][:8]}…  "
                             f"score={score_resp['anomaly_score']:.3f}  "

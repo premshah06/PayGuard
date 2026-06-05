@@ -3,8 +3,7 @@ Unit tests for consumer/features.py.
 """
 from __future__ import annotations
 
-import math
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -14,11 +13,8 @@ from consumer.features import (
     encode_merchant,
     engineer_features,
     features_to_vector,
-    get_or_create_state,
     haversine,
-    reset_state,
 )
-
 
 # -------------------------------------------------------------------
 # haversine
@@ -96,14 +92,14 @@ class TestUserState:
 
     def test_rolling_avg_updates(self):
         state = UserState()
-        ts = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+        ts = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
         state.update(50.0, ts, 0.0, 0.0)
         state.update(100.0, ts, 0.0, 0.0)
         assert state.rolling_avg_amount == pytest.approx(75.0)
 
     def test_velocity_window(self):
         state = UserState()
-        base = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+        base = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
         from datetime import timedelta
         for i in range(5):
             t = base + timedelta(seconds=i * 30)
@@ -114,7 +110,7 @@ class TestUserState:
 
     def test_velocity_excludes_old(self):
         state = UserState()
-        base = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+        base = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
         from datetime import timedelta
         old = base - timedelta(seconds=400)
         state.update(10.0, old, 0.0, 0.0)  # older than 5-min window
@@ -123,7 +119,7 @@ class TestUserState:
 
     def test_home_latched_from_first_update(self):
         state = UserState()
-        ts = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+        ts = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
         state.update(10.0, ts, 40.0, -74.0)
         assert state.home_lat == pytest.approx(40.0)
         assert state.home_lng == pytest.approx(-74.0)
@@ -177,7 +173,7 @@ class TestEngineerFeatures:
     def test_txns_last_5min_increments(self, normal_txn, profiles, sample_user_id):
         import copy
         from datetime import timedelta
-        base = datetime(2024, 6, 10, 14, 30, 0, tzinfo=timezone.utc)
+        base = datetime(2024, 6, 10, 14, 30, 0, tzinfo=UTC)
         profile = profiles[sample_user_id]
         for i in range(3):
             txn = copy.deepcopy(normal_txn)

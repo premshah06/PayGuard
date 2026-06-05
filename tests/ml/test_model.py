@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import random
 import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import numpy as np
@@ -17,7 +17,6 @@ import pytest
 
 from consumer.features import FEATURE_ORDER, engineer_features, features_to_vector, reset_state
 from producer.generator import generate_batch, make_user_profiles
-
 
 # -------------------------------------------------------------------
 # Fixtures
@@ -27,14 +26,13 @@ from producer.generator import generate_batch, make_user_profiles
 def tiny_model():
     """Train a tiny IsolationForest and export to ONNX in a temp dir.
     Module-scoped so training runs once per test session."""
-    from sklearn.ensemble import IsolationForest
     from skl2onnx import convert_sklearn
     from skl2onnx.common.data_types import FloatTensorType
-    from scipy.special import expit
+    from sklearn.ensemble import IsolationForest
 
     rng = random.Random(0)
     profiles = make_user_profiles(30, rng)
-    ts = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+    ts = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
 
     reset_state()
     txns = generate_batch(profiles, rng, 500, fraud_rate=0.05, base_ts=ts)
@@ -117,8 +115,8 @@ class TestONNXInference:
         input_name = sess.get_inputs()[0].name
         X = tiny_model["X"][:50]
         outputs = sess.run(None, {input_name: X})
-        labels = outputs[0]
-        unique = set(int(l) for l in labels)
+        labels = np.asarray(outputs[0]).reshape(-1)
+        unique = {int(label) for label in labels}
         assert unique.issubset({-1, 1})
 
     def test_onnx_label_agreement_with_sklearn(self, tiny_model):
@@ -132,14 +130,13 @@ class TestONNXInference:
                                    providers=["CPUExecutionProvider"])
         input_name = sess.get_inputs()[0].name
         onnx_outputs = sess.run(None, {input_name: X})
-        onnx_labels = onnx_outputs[0]
+        onnx_labels = np.asarray(onnx_outputs[0]).reshape(-1)
 
         agreement = np.mean(sklearn_labels == onnx_labels)
         assert agreement >= 0.98, f"ONNX/sklearn agreement too low: {agreement:.3f}"
 
     def test_calibrated_scores_in_0_1(self, tiny_model):
         """Sigmoid-calibrated anomaly probabilities must be in [0, 1]."""
-        import onnxruntime as rt
         from scipy.special import expit
 
         clf = tiny_model["clf"]

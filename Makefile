@@ -37,7 +37,6 @@ test-backend:
 	@echo "Running Python test suite…"
 	python -m pytest tests/ -v --cov=. \
 		--cov-report=term-missing \
-		--cov-omit="*/tests/*,*/__pycache__/*" \
 		-p no:warnings
 
 test-frontend:

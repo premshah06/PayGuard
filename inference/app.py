@@ -15,7 +15,7 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 from fastapi import FastAPI, HTTPException
@@ -98,9 +98,10 @@ def _extract_raw_score(score_output: object) -> float:
         item = score_output[0]
         if isinstance(item, dict):
             # Anomaly-class key is -1; fall back to the first value.
-            return float(item.get(-1, next(iter(item.values()))))
-        return float(item)
-    return float(score_output)
+            raw_value = item.get(-1, next(iter(item.values())))
+            return float(cast(Any, raw_value))
+        return float(cast(Any, item))
+    return float(cast(Any, score_output))
 
 
 def _calibrated_score(raw: float) -> float:

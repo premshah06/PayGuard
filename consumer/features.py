@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import math
 from collections import deque
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 # -------------------------------------------------------------------
@@ -160,7 +160,7 @@ def get_or_create_state(user_id: str, profile: dict[str, Any] | None = None) -> 
 def _parse_ts(ts_str: str) -> datetime:
     """Parse an ISO-8601 timestamp string. Forces UTC if no tzinfo is present."""
     dt = datetime.fromisoformat(ts_str)
-    return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=UTC)
 
 
 def engineer_features(

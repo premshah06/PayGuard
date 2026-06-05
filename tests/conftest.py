@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import random
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -57,7 +57,7 @@ def normal_txn(sample_user_id: str, profiles) -> dict:
             "lat": profile["home_location"]["lat"],
             "lng": profile["home_location"]["lng"],
         },
-        "timestamp": datetime(2024, 6, 10, 14, 30, 0, tzinfo=timezone.utc).isoformat(),
+        "timestamp": datetime(2024, 6, 10, 14, 30, 0, tzinfo=UTC).isoformat(),
         "device": "mobile",
         "card_present": True,
         "ground_truth_label": 0,

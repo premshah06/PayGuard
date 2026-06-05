@@ -1,5 +1,3 @@
-version: "3.9"
-
 # ── Networks ───────────────────────────────────────────────────────
 networks:
   payguard:
@@ -8,7 +6,6 @@ networks:
 # ── Volumes ────────────────────────────────────────────────────────
 volumes:
   pg_data:
-  ml_models:   # shared between ml train, inference sidecar, consumer
 
 # ── Services ───────────────────────────────────────────────────────
 services:
@@ -67,7 +64,7 @@ services:
       THRESHOLD_FLAG: "0.85"
       THRESHOLD_REVIEW: "0.60"
     volumes:
-      - ml_models:/models:ro
+      - ./ml:/models:ro
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 15s

@@ -25,7 +25,7 @@ import math
 import os
 import random
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from aiokafka import AIOKafkaProducer
@@ -294,7 +294,7 @@ def generate_batch(
     transaction per call; the result is trimmed to *n* rows.
     """
     if base_ts is None:
-        base_ts = datetime.now(timezone.utc)
+        base_ts = datetime.now(UTC)
 
     user_ids = list(profiles.keys())
     transactions: list[dict[str, Any]] = []
@@ -339,7 +339,7 @@ async def produce(seed: int | None = None) -> None:
 
     try:
         while True:
-            ts = datetime.now(timezone.utc)
+            ts = datetime.now(UTC)
             user_id = rng.choice(list(profiles.keys()))
             profile = profiles[user_id]
 

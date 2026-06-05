@@ -7,7 +7,6 @@ including serialisation, business logic, and DB write calls.
 """
 from __future__ import annotations
 
-import json
 from unittest.mock import AsyncMock, patch
 
 import pytest

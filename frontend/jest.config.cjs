@@ -9,7 +9,7 @@ module.exports = {
     '^gsap.*$': '<rootDir>/tests/__mocks__/gsap.js',
     '^@studio-freight/lenis$': '<rootDir>/tests/__mocks__/lenis.js',
   },
-  setupFilesAfterFramework: ['./tests/setupTests.js'],
+  setupFilesAfterEnv: ['./tests/setupTests.js'],
   testMatch: ['**/tests/**/*.test.{js,jsx}'],
   collectCoverageFrom: ['src/**/*.{js,jsx}'],
 };

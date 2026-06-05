@@ -39,7 +39,7 @@ export default function FlaggedPanel({ flagged }) {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 0, overflow: 'auto', maxHeight: '65vh' }}>
         {flagged.map((txn, i) => (
           <div
-            key={txn.transaction_id || i}
+            key={`${txn.transaction_id || 'txn'}-${i}`}
             className="flagged-row"
             style={{ animationDelay: `${Math.min(i * 40, 400)}ms` }}
           >

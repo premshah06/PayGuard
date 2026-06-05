@@ -18,10 +18,10 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any, cast
 
 import numpy as np
 from scipy.special import expit  # sigmoid
@@ -107,9 +107,10 @@ def extract_onnx_score(score_output: object) -> float:
         item = score_output[0]
         if isinstance(item, dict):
             # Sequence-of-Maps format: pick the anomaly class key (-1).
-            return float(item.get(-1, next(iter(item.values()))))
-        return float(item)
-    return float(score_output)
+            raw_value = item.get(-1, next(iter(item.values())))
+            return float(cast(Any, raw_value))
+        return float(cast(Any, item))
+    return float(cast(Any, score_output))
 
 
 # -------------------------------------------------------------------
@@ -129,18 +130,16 @@ def train(
 
     import random
 
-    from sklearn.ensemble import IsolationForest
     from skl2onnx import convert_sklearn
     from skl2onnx.common.data_types import FloatTensorType
+    from sklearn.ensemble import IsolationForest
 
     rng = random.Random(seed)
-    np_rng = np.random.default_rng(seed)
-
     # ------------------------------------------------------------------
     # 1. Generate training data
     # ------------------------------------------------------------------
     print(f"\n[1/7] Generating {train_size:,} training transactions …")
-    base_ts = datetime(2024, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
+    base_ts = datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC)
     profiles = make_user_profiles(n_users, rng)
     train_txns = generate_batch(profiles, rng, train_size, fraud_rate=0.05, base_ts=base_ts)
 
@@ -211,7 +210,7 @@ def train(
             "review": THRESHOLD_REVIEW,
         },
         "model_version": "1.0.0",
-        "trained_at": datetime.now(timezone.utc).isoformat(),
+        "trained_at": datetime.now(UTC).isoformat(),
     }
     FEATURE_MAP_PATH.write_text(json.dumps(feature_map, indent=2))
 
@@ -221,7 +220,7 @@ def train(
     print(f"\n[7/7] Evaluating on {eval_size:,} held-out transactions …")
     import onnxruntime as rt
 
-    eval_base_ts = datetime(2024, 2, 15, 12, 0, 0, tzinfo=timezone.utc)
+    eval_base_ts = datetime(2024, 2, 15, 12, 0, 0, tzinfo=UTC)
     eval_profiles = make_user_profiles(100, random.Random(seed + 1))
     eval_txns = generate_batch(
         eval_profiles, random.Random(seed + 1), eval_size,
@@ -235,10 +234,8 @@ def train(
     # Load exported ONNX model for round-trip verification.
     sess = rt.InferenceSession(str(ONNX_PATH), providers=["CPUExecutionProvider"])
     input_name = sess.get_inputs()[0].name
-    output_names = [o.name for o in sess.get_outputs()]
-
     onnx_outputs = sess.run(None, {input_name: X_eval})
-    onnx_labels = onnx_outputs[0]  # int64: -1 (anomaly) / 1 (normal)
+    onnx_labels = np.asarray(onnx_outputs[0]).reshape(-1)  # int64: -1 (anomaly) / 1 (normal)
 
     # Also get calibrated probabilities via sklearn (ground truth for calibration).
     eval_raw = clf.decision_function(X_eval)
@@ -273,23 +270,23 @@ def train(
     # A "positive prediction" is flag or review (not clear).
     predicted_positive = [d != "clear" for d in decisions]
 
-    tp = sum(1 for pp, tl in zip(predicted_positive, true_labels) if pp and tl == 1)
-    fp = sum(1 for pp, tl in zip(predicted_positive, true_labels) if pp and tl == 0)
-    fn = sum(1 for pp, tl in zip(predicted_positive, true_labels) if not pp and tl == 1)
-    tn = sum(1 for pp, tl in zip(predicted_positive, true_labels) if not pp and tl == 0)
+    tp = sum(1 for pp, tl in zip(predicted_positive, true_labels, strict=False) if pp and tl == 1)
+    fp = sum(1 for pp, tl in zip(predicted_positive, true_labels, strict=False) if pp and tl == 0)
+    fn = sum(1 for pp, tl in zip(predicted_positive, true_labels, strict=False) if not pp and tl == 1)
+    tn = sum(1 for pp, tl in zip(predicted_positive, true_labels, strict=False) if not pp and tl == 0)
 
     overall = _prf(tp, fp, fn)
 
     per_type: dict[str, dict] = {}
     unique_fraud_types = {ft for ft in fraud_types if ft is not None}
     for ft in unique_fraud_types:
-        ft_tp = sum(1 for pp, tl, ftype in zip(predicted_positive, true_labels, fraud_types)
+        ft_tp = sum(1 for pp, tl, ftype in zip(predicted_positive, true_labels, fraud_types, strict=False)
                     if pp and tl == 1 and ftype == ft)
-        ft_fp = sum(1 for pp, tl, ftype in zip(predicted_positive, true_labels, fraud_types)
+        ft_fp = sum(1 for pp, tl, ftype in zip(predicted_positive, true_labels, fraud_types, strict=False)
                     if pp and tl == 0 and ftype == ft)  # not meaningful per type but included
-        ft_fn = sum(1 for pp, tl, ftype in zip(predicted_positive, true_labels, fraud_types)
+        ft_fn = sum(1 for pp, tl, ftype in zip(predicted_positive, true_labels, fraud_types, strict=False)
                     if not pp and tl == 1 and ftype == ft)
-        count = sum(1 for tl, ftype in zip(true_labels, fraud_types) if tl == 1 and ftype == ft)
+        count = sum(1 for tl, ftype in zip(true_labels, fraud_types, strict=False) if tl == 1 and ftype == ft)
         per_type[ft] = {**_prf(ft_tp, ft_fp, ft_fn), "count": count}
 
     # Confusion matrix: [[TN, FP], [FN, TP]]
@@ -314,7 +311,7 @@ def train(
         "threshold_review": THRESHOLD_REVIEW,
         "train_size": train_size,
         "eval_size": eval_size,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
     }
     EVAL_PATH.write_text(json.dumps(eval_results, indent=2))
     print(f"Eval results saved → {EVAL_PATH}")

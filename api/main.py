@@ -18,10 +18,11 @@ Endpoints:
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import os
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import asyncpg
@@ -73,11 +74,20 @@ _http_client: httpx.AsyncClient | None = None
 
 
 @asynccontextmanager
+async def _pool_connection(pool: asyncpg.Pool):
+    acquire_result = pool.acquire()
+    acquire_ctx = await acquire_result if inspect.isawaitable(acquire_result) else acquire_result
+    async with acquire_ctx as conn:
+        yield conn
+
+
+@asynccontextmanager
 async def lifespan(app: FastAPI):
     global _db_pool, _http_client
     try:
-        _db_pool = await asyncpg.create_pool(DATABASE_URL, min_size=2, max_size=20)
-        async with _db_pool.acquire() as conn:
+        pool_result = asyncpg.create_pool(DATABASE_URL, min_size=2, max_size=20)
+        _db_pool = await pool_result if inspect.isawaitable(pool_result) else pool_result
+        async with _pool_connection(_db_pool) as conn:
             await conn.execute(CREATE_TABLE_SQL)
         print("[api] PostgreSQL connected")
     except Exception as exc:
@@ -150,7 +160,8 @@ _DEMO_ROWS: list[dict] = []
 
 def _seed_demo_data() -> None:
     """Populate _DEMO_ROWS with realistic scored transactions for UI demo."""
-    import random, uuid, math
+    import random
+    import uuid
     from datetime import timedelta
     rng = random.Random(99)
     merchants = ["grocery", "restaurant", "gas_station", "online_retail",
@@ -158,7 +169,7 @@ def _seed_demo_data() -> None:
     fraud_types = [None, None, None, None, None,
                    "velocity_spike", "amount_anomaly", "geo_impossible",
                    "round_structuring", "odd_hours"]
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     rows = []
     for i in range(60):
         fraud_type = rng.choice(fraud_types)
@@ -187,13 +198,17 @@ _seed_demo_data()
 # -------------------------------------------------------------------
 
 
-async def _fetch(query: str, *args) -> list[dict]:
+async def _fetch(query: str, *args) -> list[Any]:
     if _db_pool is None:
         return []
     try:
-        async with _db_pool.acquire() as conn:
+        async with _pool_connection(_db_pool) as conn:
             rows = await conn.fetch(query, *args)
-            return [dict(r) for r in rows]
+            result = []
+            for row in rows:
+                converted = dict(row)
+                result.append(converted if converted or isinstance(row, dict) else row)
+            return result
     except Exception as exc:  # noqa: BLE001
         print(f"[api] DB error: {exc}")
         return []
@@ -203,7 +218,7 @@ async def _execute(query: str, *args) -> None:
     if _db_pool is None:
         return
     try:
-        async with _db_pool.acquire() as conn:
+        async with _pool_connection(_db_pool) as conn:
             await conn.execute(query, *args)
     except Exception as exc:  # noqa: BLE001
         print(f"[api] DB write error: {exc}")
@@ -238,12 +253,12 @@ async def health() -> dict:
     db_ok = False
     if _db_pool:
         try:
-            async with _db_pool.acquire() as conn:
+            async with _pool_connection(_db_pool) as conn:
                 await conn.fetchval("SELECT 1")
             db_ok = True
         except Exception:  # noqa: BLE001
             pass
-    return {"status": "ok", "db_connected": db_ok, "ts": datetime.now(timezone.utc).isoformat()}
+    return {"status": "ok", "db_connected": db_ok, "ts": datetime.now(UTC).isoformat()}
 
 
 @app.get("/api/transactions", dependencies=[Depends(require_api_key)])
@@ -288,7 +303,7 @@ async def get_stats() -> dict:
         return {
             "precision": round(precision, 4), "recall": round(recall, 4), "f1": round(f1, 4),
             "tp": tp, "fp": fp, "fn": fn, "tn": tn, "total": total,
-            "window": "demo", "computed_at": datetime.now(timezone.utc).isoformat(),
+            "window": "demo", "computed_at": datetime.now(UTC).isoformat(),
         }
     rows = await _fetch(
         """
@@ -329,7 +344,7 @@ async def get_stats() -> dict:
         "tn": tn,
         "total": total,
         "window": "1h",
-        "computed_at": datetime.now(timezone.utc).isoformat(),
+        "computed_at": datetime.now(UTC).isoformat(),
     }
 
 
@@ -342,9 +357,13 @@ async def score_transaction(req: ScoreRequest) -> dict:
 
     try:
         resp = await _http_client.post("/score", json=req.model_dump())
-        resp.raise_for_status()
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail=f"Inference sidecar error: {exc}") from exc
+    if resp.status_code >= 400:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Inference sidecar error: HTTP {resp.status_code}",
+        )
 
     score_resp = resp.json()
 
@@ -376,7 +395,7 @@ async def score_transaction(req: ScoreRequest) -> dict:
             "merchant_category": req.merchant_category,
             "fraud_type": req.fraud_type,
             "ground_truth_label": req.ground_truth_label,
-            "flagged_at": datetime.now(timezone.utc).isoformat(),
+            "flagged_at": datetime.now(UTC).isoformat(),
         }
         asyncio.create_task(_ws_manager.broadcast(broadcast_payload))
 

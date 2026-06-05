@@ -4,23 +4,20 @@ Unit tests for producer/generator.py.
 from __future__ import annotations
 
 import random
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
 from producer.generator import (
-    CITIES,
-    FRAUD_GENERATORS,
     _haversine,
-    generate_batch,
     gen_amount_anomaly,
     gen_geo_impossible,
     gen_odd_hours,
     gen_round_structuring,
     gen_velocity_spike,
+    generate_batch,
     make_user_profiles,
 )
-
 
 # -------------------------------------------------------------------
 # Helpers
@@ -48,7 +45,7 @@ def profile(user_id, profiles_small) -> dict:
 
 @pytest.fixture
 def ts() -> datetime:
-    return datetime(2024, 6, 10, 14, 0, 0, tzinfo=timezone.utc)
+    return datetime(2024, 6, 10, 14, 0, 0, tzinfo=UTC)
 
 
 # -------------------------------------------------------------------
@@ -103,7 +100,6 @@ class TestVelocitySpike:
 
     def test_within_two_minutes(self, user_id, profile, fixed_rng, ts):
         txns = gen_velocity_spike(user_id, profile, fixed_rng, ts)
-        from datetime import timedelta
         timestamps = [datetime.fromisoformat(t["timestamp"]) for t in txns]
         span = max(timestamps) - min(timestamps)
         assert span.total_seconds() < 120
