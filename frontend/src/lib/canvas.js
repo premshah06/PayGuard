@@ -117,9 +117,9 @@ function frame() {
     ctx.save();
     ctx.translate(s.x, s.y);
     ctx.rotate(s.rot);
-    ctx.globalAlpha = s.alpha;
+    ctx.globalAlpha = s.alpha * 0.6;   // even more subtle on light bg
     ctx.strokeStyle = accent;
-    ctx.lineWidth = 0.7;
+    ctx.lineWidth = 1.0;
 
     if (s.type === 'circle') {
       ctx.beginPath();

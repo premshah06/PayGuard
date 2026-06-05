@@ -62,8 +62,8 @@ export default function App({ reducedMotion }) {
     setActiveTab(tab.id);
     if (!reducedMotion) {
       const accentMap = {
-        feed: '#38bdf8', flagged: '#ef4444',
-        histogram: '#a855f7', stats: '#f59e0b',
+        feed: '#6366f1', flagged: '#ef4444',
+        histogram: '#8b5cf6', stats: '#f59e0b',
       };
       document.documentElement.style.setProperty('--current-accent', accentMap[tab.id] || '#00ff88');
     }
@@ -113,7 +113,7 @@ export default function App({ reducedMotion }) {
                   <path
                     d="M18 2L4 8v10c0 8.284 5.97 16.045 14 18 8.03-1.955 14-9.716 14-18V8L18 2z"
                     stroke="var(--current-accent)" strokeWidth="1.5" strokeLinejoin="round"
-                    fill="rgba(0,255,136,0.06)"
+                    fill="rgba(37,99,235,0.08)"
                   />
                   <path d="M12 18l4 4 8-8" stroke="var(--current-accent)" strokeWidth="1.5"
                         strokeLinecap="round" strokeLinejoin="round"/>

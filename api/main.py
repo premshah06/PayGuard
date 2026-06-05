@@ -75,14 +75,20 @@ _http_client: httpx.AsyncClient | None = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _db_pool, _http_client
-    _db_pool = await asyncpg.create_pool(DATABASE_URL, min_size=2, max_size=20)
-    async with _db_pool.acquire() as conn:
-        await conn.execute(CREATE_TABLE_SQL)
+    try:
+        _db_pool = await asyncpg.create_pool(DATABASE_URL, min_size=2, max_size=20)
+        async with _db_pool.acquire() as conn:
+            await conn.execute(CREATE_TABLE_SQL)
+        print("[api] PostgreSQL connected")
+    except Exception as exc:
+        print(f"[api] PostgreSQL unavailable ({exc}) — running in demo mode (in-memory)")
+        _db_pool = None
     _http_client = httpx.AsyncClient(base_url=INFERENCE_URL, timeout=10.0)
     print("[api] startup complete")
     yield
     await _http_client.aclose()
-    await _db_pool.close()
+    if _db_pool:
+        await _db_pool.close()
 
 
 app = FastAPI(title="PayGuard API", version="1.0.0", lifespan=lifespan)
@@ -134,6 +140,47 @@ class ConnectionManager:
 
 
 _ws_manager = ConnectionManager()
+
+# -------------------------------------------------------------------
+# In-memory demo store (used when PostgreSQL is unavailable)
+# -------------------------------------------------------------------
+
+_DEMO_ROWS: list[dict] = []
+
+
+def _seed_demo_data() -> None:
+    """Populate _DEMO_ROWS with realistic scored transactions for UI demo."""
+    import random, uuid, math
+    from datetime import timedelta
+    rng = random.Random(99)
+    merchants = ["grocery", "restaurant", "gas_station", "online_retail",
+                 "pharmacy", "entertainment", "travel", "electronics"]
+    fraud_types = [None, None, None, None, None,
+                   "velocity_spike", "amount_anomaly", "geo_impossible",
+                   "round_structuring", "odd_hours"]
+    now = datetime.now(timezone.utc)
+    rows = []
+    for i in range(60):
+        fraud_type = rng.choice(fraud_types)
+        is_fraud = fraud_type is not None
+        score = rng.uniform(0.87, 0.99) if is_fraud else rng.uniform(0.05, 0.55)
+        decision = "flag" if score >= 0.85 else ("review" if score >= 0.60 else "clear")
+        rows.append({
+            "transaction_id": str(uuid.UUID(int=rng.getrandbits(128))),
+            "user_id": str(uuid.UUID(int=rng.getrandbits(128))),
+            "amount": round(rng.uniform(10, 5000) if is_fraud else rng.uniform(5, 300), 2),
+            "merchant_category": rng.choice(merchants),
+            "anomaly_score": round(score, 4),
+            "decision": decision,
+            "ground_truth_label": 1 if is_fraud else 0,
+            "fraud_type": fraud_type,
+            "created_at": (now - timedelta(seconds=i * 18)).isoformat(),
+        })
+    _DEMO_ROWS.extend(rows)
+
+
+# Seed on import so demo data is ready.
+_seed_demo_data()
 
 # -------------------------------------------------------------------
 # DB helpers — graceful fallback on any failure
@@ -202,6 +249,8 @@ async def health() -> dict:
 @app.get("/api/transactions", dependencies=[Depends(require_api_key)])
 async def get_transactions(limit: int = Query(default=50, le=500)) -> list[dict]:
     """Return the most recent *limit* scored transactions."""
+    if _db_pool is None:
+        return sorted(_DEMO_ROWS, key=lambda r: r["created_at"], reverse=True)[:limit]
     return await _fetch(
         "SELECT * FROM transaction_audit ORDER BY created_at DESC LIMIT $1",
         limit,
@@ -211,6 +260,9 @@ async def get_transactions(limit: int = Query(default=50, le=500)) -> list[dict]
 @app.get("/api/flagged", dependencies=[Depends(require_api_key)])
 async def get_flagged(limit: int = Query(default=100, le=1000)) -> list[dict]:
     """Return transactions with decision='flag', newest first."""
+    if _db_pool is None:
+        flagged = [r for r in _DEMO_ROWS if r["decision"] == "flag"]
+        return sorted(flagged, key=lambda r: r["created_at"], reverse=True)[:limit]
     return await _fetch(
         "SELECT * FROM transaction_audit WHERE decision = 'flag' "
         "ORDER BY created_at DESC LIMIT $1",
@@ -222,6 +274,22 @@ async def get_flagged(limit: int = Query(default=100, le=1000)) -> list[dict]:
 async def get_stats() -> dict:
     """Compute precision / recall / F1 over the last hour using the
     audit log ground-truth labels as the reference signal."""
+    if _db_pool is None:
+        # Compute from demo rows
+        rows = _DEMO_ROWS
+        tp = sum(1 for r in rows if r["ground_truth_label"] == 1 and r["decision"] in ("flag", "review"))
+        fp = sum(1 for r in rows if r["ground_truth_label"] == 0 and r["decision"] in ("flag", "review"))
+        fn = sum(1 for r in rows if r["ground_truth_label"] == 1 and r["decision"] == "clear")
+        tn = sum(1 for r in rows if r["ground_truth_label"] == 0 and r["decision"] == "clear")
+        total = len(rows)
+        precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+        recall    = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+        f1        = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
+        return {
+            "precision": round(precision, 4), "recall": round(recall, 4), "f1": round(f1, 4),
+            "tp": tp, "fp": fp, "fn": fn, "tn": tn, "total": total,
+            "window": "demo", "computed_at": datetime.now(timezone.utc).isoformat(),
+        }
     rows = await _fetch(
         """
         SELECT

@@ -43,9 +43,9 @@ function CustomTooltip({ active, payload }) {
 }
 
 function binColor(midpoint) {
-  if (midpoint >= 0.85) return '#ef4444';
-  if (midpoint >= 0.60) return '#f59e0b';
-  return '#22d3ee';
+  if (midpoint >= 0.85) return '#dc2626';
+  if (midpoint >= 0.60) return '#d97706';
+  return '#2563eb';
 }
 
 export default function ScoreHistogram({ transactions }) {
